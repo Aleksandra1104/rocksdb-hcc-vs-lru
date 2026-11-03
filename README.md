@@ -3,6 +3,7 @@
 A performance comparison of RocksDB's two block caches under varying cache size, client threads and shard count.
 
 **Author:** Aleksandra Basova, UMass Boston
+
 **RocksDB version:** 11.8.1 (`db_bench`)
 
 ## Question
@@ -13,7 +14,7 @@ A performance comparison of RocksDB's two block caches under varying cache size,
 - it takes a shard mutex on every access.
 
 **HyperClockCache is *fast*:**
-- it approximates recency with CLOCK counters (0–3);
+- it approximates recency with CLOCK counters (0-3);
 - its priority handling is coarser;
 - its lookups are lock-free.
 
@@ -23,13 +24,13 @@ A performance comparison of RocksDB's two block caches under varying cache size,
 
 | Experiment | Setting | Result |
 |---|---|---|
-| **E1** cache size | 1 thread, 32 MB–2 GB | LRUCache is 0–10% faster. Its pool keeps index and filter blocks (index misses at 32 MB: 40% vs. 48%). |
-| **E2** threads | 2 GB cache, 1–14 threads | HyperClockCache pulls ahead: +4.4% at 14 threads with skewed keys. LRU threads block about 50× more often (5.7 vs. 0.12 extra waits per 100 lookups). |
+| **E1** cache size | 1 thread, 32 MB-2 GB | LRUCache is 0-10% faster. Its pool keeps index and filter blocks (index misses at 32 MB: 40% vs. 48%). |
+| **E2** threads | 2 GB cache, 1-14 threads | HyperClockCache pulls ahead: +4.4% at 14 threads with skewed keys. LRU threads block about 50× more often (5.7 vs. 0.12 extra waits per 100 lookups). |
 | **E3** shards | 1 GB cache, 14 threads | With 1 shard, LRUCache runs at half speed (31k vs. 59k ops/sec, 304 vs. 0.2 extra waits per 100 lookups). At its best (64 shards), LRU is still 5.8% slower, despite a slightly better hit rate (39.4% vs. 40.4% misses). |
 
 **Answer:** HyperClockCache wins when many threads run and most lookups hit the cache. LRUCache wins when there is little parallelism or memory is tight.
 
-![E3 throughput](results/figures/e3_throughput.png)
+![E3 throughput](results/figures/e3_plots/e3_throughput.png)
 
 ## Repository layout
 
@@ -101,13 +102,13 @@ This counts how *often* threads wait, not *how long*. Kernel tracing of lock wai
 ## Reproducing
 
 ```bash
-# 1. Build db_bench (one time, ~25 min)
+# 1. Build db_bench 
 bash scripts/00_build_rocksdb.sh
 
-# 2. Build the database (one time, ~6 min)
+# 2. Build the database 
 bash scripts/01_build_database.sh
 
-# 3. Run the experiments (E1 ~4-6 h, E2 ~4-5 h, E3 ~1.5 h)
+# 3. Run the experiments
 bash scripts/run_e1.sh
 bash scripts/run_e2.sh
 bash scripts/run_e3.sh
@@ -131,7 +132,7 @@ Run nothing else on the machine during measurement, especially at 8 or more thre
 
 | Column | Meaning |
 |---|---|
-| `exp`, `rep` | Experiment label, repeat number (1–3) |
+| `exp`, `rep` | Experiment label, repeat number (1-3) |
 | `cache` | `lru_cache` or `auto_hyper_clock_cache` |
 | `shard_bits` | Shards = 2^bits |
 | `cache_mb` | Cache size in MB |
@@ -150,8 +151,8 @@ Run nothing else on the machine during measurement, especially at 8 or more thre
 ## Limitations
 
 - **Platform.** Laptop under WSL2. Compare the two caches with each other, not with absolute numbers from other systems.
-- **Not fully cached.** The cache held only 20–40% of the 4.8 GB data, because 7 GB of RAM rules out a larger cache. Disk time therefore dilutes the lock cost, so HyperClockCache's advantage is probably understated.
+- **Not fully cached.** The cache held only 20-40% of the 4.8 GB data, because 7 GB of RAM rules out a larger cache. Disk time therefore dilutes the lock cost, so HyperClockCache's advantage is probably understated.
 - **Indirect contention measure.** Lock waits are counted, not timed. CPU time stands in for CPU cycles.
-- **Excluded runs.** Three E2 runs are excluded in `analysis/plot_e2.py`: LRU, uniform keys, 1 thread (runs 1–2) and 4 threads (run 2). Their CPU time per lookup was 2–2.5× that of matching runs, which points to other activity on the laptop. `scripts/run_e2_rerun.sh` repeats those settings.
+- **Excluded runs.** Three E2 runs are excluded in `analysis/plot_e2.py`: LRU, uniform keys, 1 thread (runs 1-2) and 4 threads (run 2). Their CPU time per lookup was 2-2.5× that of matching runs, which points to other activity on the laptop. `scripts/run_e2_rerun.sh` repeats those settings.
 - **A result that did not reproduce.** E1 measured a 9.2% LRU lead at 2 GB, skewed. E2 repeated the identical setting and measured 1.2%. Miss counts matched exactly, so this was timing noise.
 - **Not yet covered.** E4 (skew levels 0, 5, 10, 20 at 64 MB), scan workloads (scan resistance), other size ratios, tiered compaction.
