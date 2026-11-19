@@ -3,11 +3,12 @@
 This branch repeats the comparison of RocksDB's two block caches on a **0.5 GB database that fits in the cache**, and adds a fourth experiment on key skew. The original study on the 4.8 GB database is described in the README on the `main` branch; its data and charts are kept here too, so the two can be compared.
 
 **Author:** Aleksandra Basova, UMass Boston
+
 **RocksDB version:** 11.8.1 (`db_bench`)
 
 ## Why a second database
 
-In the main study the cache held only 20–40% of the 4.8 GB database, because the laptop has 7 GB of RAM. Most lookups therefore waited for a disk read (about 200–400 µs), which hides the cost of a lock wait. HyperClockCache's advantage in the main study (at most +4–6%) is therefore probably understated.
+In the main study the cache held only 20-40% of the 4.8 GB database, because my laptop has 7 GB of RAM. Most lookups therefore waited for a disk read (about 200-400 µs), which hides the cost of a lock wait. HyperClockCache's advantage in the main study (at most +4-6%) is therefore probably understated.
 
 This rerun asks two questions:
 1. **With the disk out of the picture, how much does HyperClockCache's lock-free design matter?** (E2, E3: the cache holds all the data.)
@@ -17,12 +18,12 @@ This rerun asks two questions:
 
 | Experiment | Setting | Result |
 |---|---|---|
-| **E1** cache size | 1 thread, 32 MB–1 GB | When the cache holds part of the data (32–256 MB), LRUCache is up to 9% faster with skewed keys, because it misses less often (56.0% vs. 61.3% data misses at 32 MB). With uniform keys the two tie. |
-| **E2** threads | 2 GB cache (all data cached), 1–14 threads | HyperClockCache is **+63% (skewed) and +65% (uniform) faster at 14 threads**: about 1.07M vs. 0.65M ops/sec. LRUCache stops scaling after 8 threads. LRU threads block 11–12 extra times per 100 lookups, HyperClock threads 0.01. |
+| **E1** cache size | 1 thread, 32 MB-1 GB | When the cache holds part of the data (32-256 MB), LRUCache is up to 9% faster with skewed keys, because it misses less often (56.0% vs. 61.3% data misses at 32 MB). With uniform keys the two tie. |
+| **E2** threads | 2 GB cache (all data cached), 1-14 threads | HyperClockCache is **+63% (skewed) and +65% (uniform) faster at 14 threads**: about 1.07M vs. 0.65M ops/sec. LRUCache stops scaling after 8 threads. LRU threads block 11-12 extra times per 100 lookups, HyperClock threads 0.01. |
 | **E3** shards | 1 GB cache (all data cached), 14 threads | With 1 shard, LRUCache runs at **9%** of HyperClockCache's speed (98k vs. 1.11M ops/sec). Even with 64 shards it reaches only 60%. HyperClockCache runs at the same speed with 1 to 64 shards. |
-| **E4** skew (new) | 64 MB cache, skew 0, 5, 10, 20; 1 and 14 threads | Uniform keys: a tie. With any skew, LRUCache is 3–12% faster, **even at 14 threads**, because it keeps more of the hot blocks (45.9% vs. 50.0% misses at skew 10). |
+| **E4** skew (new) | 64 MB cache, skew 0, 5, 10, 20; 1 and 14 threads | Uniform keys: a tie. With any skew, LRUCache is 3-12% faster, **even at 14 threads**, because it keeps more of the hot blocks (45.9% vs. 50.0% misses at skew 10). |
 
-**Answer:** The main study's answer holds, and the difference is much larger. When most lookups hit the cache and many threads run, HyperClockCache is 63–70% faster, because LRUCache's shard locks become the bottleneck. LRUCache wins, by 3–12%, only when the cache is small and the keys are skewed: then each extra miss costs a disk read, which is far more expensive than a lock wait.
+**Answer:** The main study's answer holds, and the difference is much larger. When most lookups hit the cache and many threads run, HyperClockCache is 63-70% faster, because LRUCache's shard locks become the bottleneck. LRUCache wins, by 3-12%, only when the cache is small and the keys are skewed: then each extra miss costs a disk read, which is far more expensive than a lock wait.
 
 ![4.8 GB vs. 0.5 GB](results/figures/comparison/db_size_comparison.png)
 
@@ -30,7 +31,7 @@ This rerun asks two questions:
 
 | Measure | 4.8 GB database (`main`) | 0.5 GB database (this branch) |
 |---|---|---|
-| Share of the data the cache holds in E2 and E3 | 20–40% | 100% |
+| Share of the data the cache holds in E2 and E3 | 20-40% | 100% |
 | HyperClockCache lead at 14 threads, E2 (skewed / uniform) | +4.4% / +1.3% | **+63% / +65%** |
 | LRU extra waits per 100 lookups at 14 threads, E2 skewed | 5.7 | 11.0 |
 | E3, 1 shard, skewed: LRU vs. HyperClock (ops/sec) | 31k vs. 59k (LRU at 53%) | 98k vs. 1.11M (LRU at **9%**) |
@@ -42,10 +43,10 @@ This rerun asks two questions:
 | E1, 32 MB, skewed: index-block misses (LRU vs. HyperClock) | 39% vs. 46% | about 0% for both |
 
 What the comparison shows:
-- **The amount of lock waiting barely changed; what changed is everything else.** With 1 shard (E3, skewed), LRU threads made about 300 extra waits per 100 lookups on both databases (304 and 291). On the 4.8 GB database, disk reads dominated the time anyway. On the 0.5 GB database, a cached lookup takes only about 9 µs, so the waits dominate.
-- **Faster lookups mean more contention.** In E2 at 14 threads, LRU threads waited twice as often on the small database (11.0 vs. 5.7 per 100 lookups), because threads that are not waiting for the disk ask for the lock more often.
-- **The tail shows it most.** p99.9 at 14 threads is 8–9× worse for LRUCache on the small database, while on the 4.8 GB database the tails were the same.
-- **LRU's index protection only mattered on the big database.** The 0.5 GB database's index and filter blocks fit even in a 32 MB cache, so LRU's E1 lead here comes from keeping hot *data* blocks.
+- **LRU threads waited about the same number of times on both databases.** With 1 shard (E3, skewed keys), LRU threads made about 300 extra waits per 100 lookups on both databases (304 and 291). On the 4.8 GB database, most of the time went to disk reads, so the waits were a small part of the total. On the 0.5 GB database, a cached lookup takes only about 9 µs, so the waits became the main cost.
+- **Faster lookups cause more contention.** In E2 at 14 threads, LRU threads waited twice as often on the small database (11.0 vs. 5.7 per 100 lookups). Threads do not wait for the disk, so they request the lock more often.
+- **The difference is largest in the slowest lookups.** At 14 threads, LRUCache's p99.9 latency is 8-9× higher than HyperClockCache's on the small database. On the 4.8 GB database, p99.9 was about the same for both caches.
+- **LRU's protection of index blocks helped only on the big database.** On the 0.5 GB database, the index and filter blocks fit even in a 32 MB cache. So here, LRU's advantage in E1 comes from keeping the frequently used *data* blocks in the cache.
 
 ## Repository layout (this branch)
 
@@ -126,14 +127,14 @@ Checks that the rerun did what it was meant to:
 
 The y-axis is logarithmic, because the fully cached sizes are up to 50× faster than the disk-bound ones.
 
-- **32–256 MB (cache smaller than the data).** Most lookups wait for the disk (4,500–16,500 ops/sec).
+- **32–256 MB (cache smaller than the data).** Most lookups wait for the disk (4,500-16,500 ops/sec).
   - Uniform keys: a tie, within 1–2%.
   - Skewed keys: LRUCache is +9.0% at 32 MB (7,258 vs. 6,659) and +6.6% at 128 MB (11,094 vs. 10,404); at 256 MB they tie.
   - The reason is the hit rate. Data misses at 32 MB are 56.0% vs. 61.3%, and at 128 MB 34.4% vs. 36.9%. LRU's high-priority pool keeps data blocks that were hit before, so hot blocks survive longer.
   - Unlike on the 4.8 GB database, index and filter misses are about 0 for both caches: the smaller tree's index and filter blocks fit even in 32 MB.
 - **512 MB and 1 GB (cache about the size of the data, or larger).** Throughput jumps 7–30×.
   - With uniform keys HyperClockCache looks 11–19% faster (1 GB: 243k vs. 203k), but this is noise. E2 measured the same setting at 1 thread and found the opposite (LRU 231k vs. HyperClock 228k), and the HyperClock runs varied by 6%. With one thread there is no lock contention, so there is nothing for HyperClockCache to win.
-  - With skewed keys, throughput at 1 GB (122–125k) is about half of uniform. About 0.64% of lookups still go to the disk: a skewed warm-up rarely touches the cold keys, so their blocks are never loaded, and each of those misses costs about 200 µs.
+  - With skewed keys, throughput at 1 GB (122-125k) is about half of uniform. About 0.64% of lookups still go to the disk: a skewed warm-up rarely touches the cold keys, so their blocks are never loaded, and each of those misses costs about 200 µs.
 
 ![E1 miss ratios](results/figures/e1_plots/e1_small_miss_ratios.png)
 
