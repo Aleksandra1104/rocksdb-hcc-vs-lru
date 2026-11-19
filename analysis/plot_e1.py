@@ -1,15 +1,22 @@
 #!/usr/bin/env python3
-""" E1 charts and summary table from results.csv.
-usage: python plot_e1.py results.csv   (writes PNGs + e1_summary.csv next to the CSV)"""
+"""plot_e1.py - E1 charts and summary table from results.csv.
+usage: python3 analysis/plot_e1.py data/results_e1.csv  (writes results/ and results/figures/)"""
 import sys
 from pathlib import Path
 import pandas as pd
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.ticker import FuncFormatter
+COMMAS = FuncFormatter(lambda v, _: f"{v:,.0f}")   # 1,000,000 instead of 1e6
 
 src = Path(sys.argv[1])
-out = src.parent
+REPO = Path(__file__).resolve().parent.parent
+out = REPO / "results"             # summary tables
+TAG = src.stem.replace("results_", "")            # e1, or e1_small for the 0.5 GB database
+fig_out = out / "figures" / "e1_plots"   # charts
+fig_out.mkdir(parents=True, exist_ok=True)
+EXP = "E1 [0.5 GB DB]" if "small" in TAG else "E1"
 d = pd.read_csv(src)
 d = d[d["exp"] == "E1"]
 
@@ -26,7 +33,7 @@ g = (d.groupby(["cache_mb", "skew", "cache"])
             filter_miss=("filter_miss_ratio", "mean"), total_miss=("total_miss_ratio", "mean"),
             cpu_us=("cpu_us_per_op", "mean"))
        .reset_index())
-g.round(4).to_csv(out / "e1_summary.csv", index=False)
+g.round(4).to_csv(out / f"{TAG}_summary.csv", index=False)
 sizes = sorted(g["cache_mb"].unique())
 
 
@@ -60,12 +67,18 @@ fig, axes = plt.subplots(1, 2, figsize=(10, 4))
 for ax, skew in zip(axes, SKEW):
     lines(ax, "ops", skew, err="ops_sd")
     style(ax, SKEW[skew], "Throughput (ops/sec)")
-    ax.set_ylim(bottom=0)
+    if "small" in TAG:      # fully cached points are ~50x the disk-bound ones: log axis
+        ax.set_yscale("log")
+        ax.set_ylabel("Throughput (ops/sec, log scale)", color=MUTED, fontsize=9)
+    else:
+        ax.set_ylim(bottom=0)
+    ax.yaxis.set_major_formatter(COMMAS)
+    ax.yaxis.set_minor_formatter(FuncFormatter(lambda v, _: ""))
 axes[0].legend(frameon=False, fontsize=9, loc="upper left")
-fig.suptitle("E1 - Throughput vs. cache size (1 thread, mean of 3 runs, bars = std dev)",
+fig.suptitle(f"{EXP} - Throughput vs. cache size (1 thread, mean of 3 runs, bars = std dev)",
              x=0.01, ha="left", fontsize=12, color=INK)
 fig.tight_layout()
-fig.savefig(out / "e1_throughput.png", dpi=200)
+fig.savefig(fig_out / f"{TAG}_throughput.png", dpi=200)
 
 # Figure 2: miss ratios (index on top, data below), one y-axis per panel
 fig, axes = plt.subplots(2, 2, figsize=(10, 7), sharex=True)
@@ -77,8 +90,8 @@ for j, skew in enumerate(SKEW):
     for ax in axes[:, j]:
         ax.set_ylim(bottom=0)
 axes[0, 0].legend(frameon=False, fontsize=9, loc="upper right")
-fig.suptitle("E1 - Block cache miss ratio by block type", x=0.01, ha="left",
+fig.suptitle(f"{EXP} - Block cache miss ratio by block type", x=0.01, ha="left",
              fontsize=12, color=INK)
 fig.tight_layout()
-fig.savefig(out / "e1_miss_ratios.png", dpi=200)
-print("wrote e1_throughput.png, e1_miss_ratios.png, e1_summary.csv to", out)
+fig.savefig(fig_out / f"{TAG}_miss_ratios.png", dpi=200)
+print(f"wrote {TAG}_* charts and summary to", out)

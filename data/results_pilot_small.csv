@@ -1,0 +1,3 @@
+exp,num_keys,cache,shard_bits,cache_mb,hipri,threads,reads_per_thread,skew,rep,ops_sec,p50_us,p99_us,p999_us,data_hit,data_miss,index_hit,index_miss,filter_hit,filter_miss,data_miss_ratio,index_miss_ratio,filter_miss_ratio,total_miss_ratio,cpu_us_per_op,misses_per_op,vol_cs_per_op,invol_cs_per_op,timestamp
+PILOT,1000000,lru_cache,6,2048,0.5,1,1000000,0.0,1,119536,6.02,20.90,125.15,1009321,127,1009417,1,2673689,1,0.0001,0.0,0.0,0.0,6.81,0.0001,0.0001,0.0,2026-11-10 17:01:05
+PILOT,1000000,lru_cache,6,2048,0.5,14,1000000,0.0,1,647024,13.06,165.32,1051.99,14132951,-10,14132494,-2,37432402,-7,-0.0,-0.0,-0.0,-0.0,17.4,-0.0,0.1262,0.0,2026-11-10 17:02:18

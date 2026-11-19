@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""E2 charts and summary table.
-usage: python plot_e2.py results_e2.csv [results_e2_rerun.csv]
+"""plot_e2.py - E2 charts and summary table.
+usage: python3 analysis/plot_e2.py data/results_e2.csv  (writes results/ and results/figures/)
 If a rerun file is given, its rows replace every run of the same configuration."""
 import sys
 from pathlib import Path
@@ -8,15 +8,24 @@ import pandas as pd
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.ticker import FuncFormatter
+COMMAS = FuncFormatter(lambda v, _: f"{v:,.0f}")   # 1,000,000 instead of 1e6
 
 KEY = ["cache", "threads", "skew"]
 src = Path(sys.argv[1])
-out = src.parent
+REPO = Path(__file__).resolve().parent.parent
+out = REPO / "results"             # summary tables
+TAG = src.stem.replace("results_", "")            # e2, or e2_small for the 0.5 GB database
+fig_out = out / "figures" / "e2_plots"   # charts
+fig_out.mkdir(parents=True, exist_ok=True)
+EXP = "E2 [0.5 GB DB]" if "small" in TAG else "E2"
 d = pd.read_csv(src)
 d = d[d["exp"] == "E2"]
 
+# Runs disturbed by other activity on the laptop (CPU time per lookup 2-2.5x the
+# matching runs, throughput 18-35% lower). Excluded unless replaced by a rerun.
 EXCLUDE = [("lru_cache", 1, 0.0, 1), ("lru_cache", 1, 0.0, 2), ("lru_cache", 4, 0.0, 2)]
-for c, t, s, r in EXCLUDE:
+for c, t, s, r in (EXCLUDE if TAG == "e2" else []):
     d = d[~((d["cache"] == c) & (d["threads"] == t) & (d["skew"] == s) & (d["rep"] == r))]
 
 if len(sys.argv) > 2:
@@ -34,7 +43,7 @@ g = (d.groupby(["skew", "threads", "cache"])
             disk_reads_per_op=("misses_per_op", "mean"), waits_per_op=("vol_cs_per_op", "mean"),
             extra_waits_per_op=("extra_waits", "mean"))
        .reset_index())
-g.round(4).to_csv(out / "e2_summary.csv", index=False)
+g.round(4).to_csv(out / f"{TAG}_summary.csv", index=False)
 
 COL = {"lru_cache": "#2a78d6", "auto_hyper_clock_cache": "#eb6834"}
 LBL = {"lru_cache": "LRUCache", "auto_hyper_clock_cache": "HyperClockCache (auto)"}
@@ -73,23 +82,24 @@ fig, axes = plt.subplots(1, 2, figsize=(10, 4))
 for ax, skew in zip(axes, SKEW):
     lines(ax, "ops", skew, err="ops_sd")
     style(ax, SKEW[skew], "Throughput (ops/sec)")
+    ax.yaxis.set_major_formatter(COMMAS)
 axes[0].legend(frameon=False, fontsize=9, loc="upper left")
-fig.suptitle("E2 - Throughput vs. client threads (2 GB cache, mean of repeats, bars = std dev)",
+fig.suptitle(f"{EXP} - Throughput vs. client threads (2 GB cache, mean of repeats, bars = std dev)",
              x=0.01, ha="left", fontsize=12, color=INK)
 fig.tight_layout()
-fig.savefig(out / "e2_throughput.png", dpi=200)
+fig.savefig(fig_out / f"{TAG}_throughput.png", dpi=200)
 
 fig, axes = plt.subplots(1, 2, figsize=(10, 4))
 for ax, skew in zip(axes, SKEW):
     lines(ax, "extra_waits_per_op", skew, scale=100)
     style(ax, SKEW[skew], "Extra blocking waits per 100 lookups")
 axes[0].legend(frameon=False, fontsize=9, loc="upper left")
-fig.suptitle("E2 - Blocking waits not explained by disk reads (contention indicator)",
+fig.suptitle(f"{EXP} - Blocking waits not explained by disk reads (contention indicator)",
              x=0.01, ha="left", fontsize=12, color=INK)
 fig.tight_layout()
-fig.savefig(out / "e2_extra_waits.png", dpi=200)
+fig.savefig(fig_out / f"{TAG}_extra_waits.png", dpi=200)
 
-# Figure 3: data-block miss ratio 
+# Figure 3: data-block miss ratio (hit rate's complement), to report beside throughput
 fig, axes = plt.subplots(1, 2, figsize=(10, 4))
 for ax, skew in zip(axes, SKEW):
     lines(ax, "data_miss", skew, scale=100)
@@ -101,8 +111,8 @@ for ax, skew in zip(axes, SKEW):
                     xytext=(6, 8 if c == "auto_hyper_clock_cache" else -14), textcoords="offset points",
                     fontsize=9, color=COL[c])
 axes[0].legend(frameon=False, fontsize=9, loc="upper left")
-fig.suptitle("E2 - Data-block miss ratio vs. client threads (2 GB cache): threads do not change what is cached",
+fig.suptitle(f"{EXP} - Data-block miss ratio vs. client threads (2 GB cache): threads do not change what is cached",
              x=0.01, ha="left", fontsize=12, color=INK)
 fig.tight_layout()
-fig.savefig(out / "e2_miss_ratio.png", dpi=200)
-print("wrote e2_throughput.png, e2_extra_waits.png, e2_miss_ratio.png, e2_summary.csv to", out)
+fig.savefig(fig_out / f"{TAG}_miss_ratio.png", dpi=200)
+print(f"wrote {TAG}_* charts and summary to", out)

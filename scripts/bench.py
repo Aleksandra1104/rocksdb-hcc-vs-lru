@@ -17,19 +17,21 @@ import argparse, csv, os, re, shutil, subprocess, sys, time
 from pathlib import Path
 
 HOME = Path.home()
-DB_BENCH = HOME / "rocksdb" / "db_bench"
+# Paths can be overridden with environment variables if your layout differs.
+DB_BENCH = Path(os.environ.get("DB_BENCH", HOME / "rocksdb" / "db_bench"))
 # The databases stay inside Ubuntu (fast disk). Results and logs go next to
 # this script, e.g. the rocksdb_project folder on the Windows Desktop.
-GOLDEN = HOME / "lsm_golden"
-RUN_DB = HOME / "lsm_run"
-PROJECT = Path(__file__).resolve().parent
-LOG_DIR = PROJECT / "logs"
-RESULTS = PROJECT / "results.csv"   # default; change per experiment with --results
+GOLDEN = Path(os.environ.get("LSM_GOLDEN", HOME / "lsm_golden"))
+RUN_DB = Path(os.environ.get("LSM_RUN", HOME / "lsm_run"))
+REPO = Path(__file__).resolve().parent.parent
+DATA = REPO / "data"
+LOG_DIR = DATA / "logs"
+RESULTS = DATA / "results.csv"   # default; change per experiment with --results
 
 # LSM settings from the setup guide (must match how lsm_golden was built)
 COMMON = [
     "--use_existing_db=true", "--disable_auto_compactions=true",
-    "--num=10000000", "--key_size=64", "--value_size=440",
+    "--key_size=64", "--value_size=440",
     "--write_buffer_size=4194304", "--target_file_size_base=1048576",
     "--level0_file_num_compaction_trigger=4", "--max_bytes_for_level_multiplier=2",
     "--max_bytes_for_level_base=33554432", "--level_compaction_dynamic_level_bytes=false",
@@ -45,7 +47,7 @@ RE_PCT = re.compile(r"Percentiles: P50: ([\d.]+) P75: ([\d.]+) P99: ([\d.]+) "
 RE_TICK = re.compile(r"rocksdb\.block\.cache\.(data|index|filter)\.(hit|miss) COUNT : (\d+)")
 KINDS = ("data", "index", "filter")
 
-FIELDS = ["exp", "cache", "shard_bits", "cache_mb", "hipri", "threads", "reads_per_thread",
+FIELDS = ["exp", "num_keys", "cache", "shard_bits", "cache_mb", "hipri", "threads", "reads_per_thread",
           "skew", "rep", "ops_sec", "p50_us", "p99_us", "p999_us",
           "data_hit", "data_miss", "index_hit", "index_miss", "filter_hit", "filter_miss",
           "data_miss_ratio", "index_miss_ratio", "filter_miss_ratio", "total_miss_ratio",
@@ -53,6 +55,7 @@ FIELDS = ["exp", "cache", "shard_bits", "cache_mb", "hipri", "threads", "reads_p
 
 
 def fresh_db():
+    """Instant fresh copy: SST files are hard links (they are never modified)."""
     if RUN_DB.exists():
         shutil.rmtree(RUN_DB)
     subprocess.run(["cp", "-al", str(GOLDEN), str(RUN_DB)], check=True)
@@ -64,7 +67,7 @@ def run_db_bench(benchmarks, a, log_path):
            f"--cache_type={a.cache}", f"--cache_numshardbits={a.shard_bits}",
            f"--cache_size={a.cache_mb * 1024 * 1024}",
            f"--cache_high_pri_pool_ratio={a.hipri}",
-           f"--threads={a.threads}", f"--reads={a.reads}",
+           f"--num={a.num}", f"--threads={a.threads}", f"--reads={a.reads}",
            f"--read_random_exp_range={a.skew}"]
     with open(log_path, "w") as f:
         f.write(" ".join(cmd) + "\n\n")
@@ -99,16 +102,18 @@ def main():
     ap.add_argument("--reads", type=int, default=200000, help="reads PER THREAD")
     ap.add_argument("--skew", type=float, default=0, help="read_random_exp_range")
     ap.add_argument("--reps", type=int, default=3)
+    ap.add_argument("--num", type=int, default=10_000_000,
+                    help="keys in the database (must match how it was built)")
     ap.add_argument("--results", default="results.csv",
-                    help="results file name, saved in the project folder")
+                    help="results file name, saved in data/")
     a = ap.parse_args()
 
     global RESULTS
-    RESULTS = PROJECT / a.results
+    RESULTS = DATA / a.results
 
     if a.threads > os.cpu_count():
         sys.exit(f"threads ({a.threads}) > cores ({os.cpu_count()})")
-    LOG_DIR.mkdir(exist_ok=True)
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
     new_file = not RESULTS.exists()
     if not new_file:
         with open(RESULTS, newline="") as f:
@@ -146,7 +151,7 @@ def main():
         tot_miss = sum(d[f"{k}_miss"] for k in KINDS)
         measured_ops = a.threads * a.reads
 
-        row = dict(exp=a.exp, cache=a.cache, shard_bits=a.shard_bits, cache_mb=a.cache_mb,
+        row = dict(exp=a.exp, num_keys=a.num, cache=a.cache, shard_bits=a.shard_bits, cache_mb=a.cache_mb,
                    hipri=a.hipri, threads=a.threads, reads_per_thread=a.reads, skew=a.skew,
                    rep=rep, ops_sec=ops_sec, p50_us=p50, p99_us=p99, p999_us=p999, **d,
                    data_miss_ratio=ratio(d["data_miss"], d["data_hit"]),
@@ -168,7 +173,7 @@ def main():
                 w.writeheader()
                 new_file = False
             w.writerow(row)
-        print(f"    -> {ops_sec} ops/sec, p99 {p99} us, total miss ratio "
+        print(f"    -> {ops_sec} ops/sec ({measured_ops / ops_sec:.1f} s measured), p99 {p99} us, total miss ratio "
               f"{row['total_miss_ratio']}, CPU {row['cpu_us_per_op']} us/op, "
               f"blocking switches {row['vol_cs_per_op']}/op", flush=True)
 
